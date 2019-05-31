@@ -20,7 +20,7 @@ func ExampleMainRun() {
 	withExportTo := exportFoundedUrl(withVisitFiltered, &LineWriter{os.Stdout})
 	done := crawler.StartLoop(withExportTo)
 	urlsChan <- parsedUrl
-	time.Sleep(10*time.Millisecond)
+	time.Sleep(100*time.Millisecond)
 	defer func() {
 		done()
 		close(urlsChan)

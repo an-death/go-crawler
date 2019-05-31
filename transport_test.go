@@ -29,5 +29,6 @@ func TestRateLimitTransport_RoundTrip(t *testing.T) {
 	limitedTransport := NewRateLimitTransport(&mockTransport, requestPerSec)
 	limitedTransport.RoundTrip(nil)
 	limitedTransport.RoundTrip(nil)
-	assert.InDelta(t, 1000*time.Millisecond, mockTransport.second.Sub(mockTransport.first), 1000)
+	delta := 5*time.Millisecond   // in case of -race request a lot of time
+	assert.InDelta(t, 1*time.Second, mockTransport.second.Sub(mockTransport.first), float64(delta))
 }

@@ -64,8 +64,8 @@ Loop:
 }
 
 func (c Crawler) asyncFetch(group *sync.WaitGroup, url *url.URL){
+	group.Add(1)
 	go func() {
-		group.Add(1)
 		c.Fetch(url.String())
 		group.Done()
 	}()
