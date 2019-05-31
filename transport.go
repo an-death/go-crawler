@@ -11,8 +11,15 @@ type RateLimitTransport struct {
 	http.RoundTripper
 }
 
-func NewRateLimitTransport(transport http.RoundTripper, rps uint64) *RateLimitTransport {
-	return &RateLimitTransport{limiter: rate.NewLimiter(rate.Limit(rps), int(rps)), RoundTripper: transport}
+func NewRateLimitTransport(transport http.RoundTripper, rps int) *RateLimitTransport {
+	var limit rate.Limit
+	if rps <= 0 {
+		limit = rate.Inf
+	} else {
+		limit = rate.Limit(rps)
+	}
+
+	return &RateLimitTransport{limiter: rate.NewLimiter(limit, int(rps)), RoundTripper: transport}
 }
 
 func (t *RateLimitTransport) RoundTrip(req *http.Request) (*http.Response, error) {
