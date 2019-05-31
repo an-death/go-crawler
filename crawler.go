@@ -2,6 +2,8 @@ package main
 
 import (
 	"net/http"
+	"net/url"
+	"sync"
 )
 
 type RequestConstructor interface {
@@ -34,4 +36,37 @@ func (c *Crawler) Fetch(rawUrl string) error {
 		return err
 	}
 	return c.ResponseHandler.HandleResponse(resp)
+}
+
+func (c *Crawler) StartLoop(inQueue <-chan *url.URL) (done func()) {
+	var group sync.WaitGroup
+	doneChan := make(chan struct{})
+	done = func() {
+		doneChan <- struct{}{}
+		<- doneChan
+	}
+go func() {
+
+Loop:
+	for {
+		select {
+		case newUrl := <-inQueue:
+			newUrl = newUrl
+			c.asyncFetch(&group, newUrl)
+		case <-doneChan:
+			break Loop
+		}
+	}
+	group.Wait()
+	doneChan <- struct{}{}
+}()
+	return done
+}
+
+func (c Crawler) asyncFetch(group *sync.WaitGroup, url *url.URL){
+	go func() {
+		group.Add(1)
+		c.Fetch(url.String())
+		group.Done()
+	}()
 }

@@ -1,150 +1,86 @@
 package main
 
 import (
-	"bytes"
-	"errors"
-	"flag"
-	"fmt"
-	"github.com/PuerkitoBio/goquery"
 	"io"
-	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
-	"strings"
-	"sync"
+	"os/signal"
+	"syscall"
 )
 
-func GetEnvOrDefault(envName, bakoff string) string {
-	if value, ok := os.LookupEnv(envName); ok {
-		return value
-	}
-	return bakoff
-}
-
-func parseAgrs() (string, uint64) {
-	var startUrlStr string
-	var rps uint64
-	flag.Uint64Var(&rps, "rps", 10, "requests per second limit")
-	flag.StringVar(&startUrlStr, "url", "", "define url for crawler")
-	flag.Parse()
-	if startUrlStr == "" {
-		panic("No host available")
-	}
-	return startUrlStr, rps
-}
-
-func isHTMLContentType(resp *http.Response) bool {
-	return strings.Contains(strings.ToLower(resp.Header.Get("Content-Type")), "html")
-}
-
-func AbsoluteUrl(base, prev *url.URL, u string) string {
-	if strings.HasPrefix(u, "#") {
-		return ""
-	}
-	if base == nil {
-		base = prev
-	}
-	if !base.IsAbs() {
-		base.Host = prev.Host
-	}
-	absURL, err := base.Parse(u)
-	if err != nil {
-		return ""
-	}
-	absURL.Fragment = ""
-	if absURL.Scheme == "//" || absURL.Scheme == "" {
-		absURL.Scheme = prev.Scheme
-	}
-	return absURL.String()
-}
+var (
+	VERSION string
+	BUILD string
+)
 
 func main() {
-	var urlsChan = make(chan string, 2)
+	var urlsChan = make(chan *url.URL)
 	var out = os.Stdout
 	startUrl, rps := parseAgrs()
-	parsedUrl, err := checkUrl(startUrl)
+	parsedUrl, err := url.Parse(startUrl)
 	if err != nil {
 		panic(err)
 	}
 
-	client := http.Client{Transport: NewRateLimitTransport(http.DefaultTransport, rps)}
-	crawler := Crawler{checkUrl, prepareRequest, client.Do, checkResponse, getLinks(parsedUrl, urlsChan)}
-	err = crawler(startUrl)
-	if err != nil {
-		panic(err)
-	}
+	// easy could be replaced by fasthttp
+	var doer Doer = &http.Client{Transport: NewRateLimitTransport(http.DefaultTransport, rps)}
+	var linkSearcher = &LinkSearcher{urlsChan, parsedUrl}
+	crawler := createCrawler(doer, []func(io.Reader)error {
+		linkSearcher.GetLinks,
+	})
 
-	fmt.Fprintln(out, startUrl)
-	var visited = make(map[string]struct{})
-	var group sync.WaitGroup
-	for newUrl := range urlsChan {
-		if _, ok := visited[newUrl]; ok {
-			continue
+	withVisitFiltered := filterVisited(urlsChan)
+	withExportTo := exportFoundedUrl(withVisitFiltered, &LineWriter{out})
+
+	done :=  crawler.StartLoop(withExportTo)
+	urlsChan <- parsedUrl
+
+	quit := make(chan os.Signal)
+	signal.Notify(quit, os.Interrupt, os.Kill, syscall.SIGTERM)
+	select {
+	case <-quit:
+		log.Println("Ctrl+C intercepted. Shutdown")
+		done()
+		close(urlsChan)
+	}
+}
+
+func createCrawler(doer Doer, bodyHandlers []func(io.Reader) error) *Crawler {
+	requestConstructor := newDefaultRequestConstructor()
+	crawler := Crawler{
+		requestConstructor,
+		doer,
+		&responseHandle{
+			validators: []func(*http.Response) error{
+				checkResponseCode(http.StatusOK),
+				checkResponseContentType("html"),
+			},
+			bodyHandlers: bodyHandlers,
+		}}
+	return &crawler
+}
+
+
+func exportFoundedUrl(inQueue <- chan *url.URL, writer io.Writer) <- chan *url.URL {
+	var outChan = make(chan *url.URL)
+	go func() {
+		for url := range inQueue{
+			writer.Write([]byte(url.String()))
+			outChan <- url
 		}
-		visited[newUrl] = struct{}{}
-		go func(newUrl string) {
-			group.Add(1)
-			err := crawler(newUrl)
-			if err != nil {
-				fmt.Fprintf(out, "ERROR: while request \"%s\" %s\n", newUrl, err)
-			} else {
-				fmt.Fprintln(out, newUrl)
-			}
-			group.Done()
-		}(newUrl)
-	}
+	}()
+	return outChan
 }
 
-func prepareRequest(parsed *url.URL) *http.Request {
-	return &http.Request{
-		Method:     "GET",
-		URL:        parsed,
-		Proto:      "HTTP/1.1",
-		ProtoMajor: 1,
-		ProtoMinor: 1,
-		Header:     http.Header{"User-Agent": []string{"Test user agent"}, "Accept": []string{"*/*"}},
-		Body:       ioutil.NopCloser(&bytes.Buffer{}),
-		Host:       parsed.Host,
-	}
+
+type LineWriter struct {
+	io.Writer
 }
 
-func checkUrl(rawUrl string) (*url.URL, error) {
-	parsedUrl, err := url.Parse(rawUrl)
-	if err != nil {
-		return nil, err
-	}
-	return parsedUrl, nil
-}
-func checkResponse(response *http.Response) error {
-	if response.StatusCode != 200 || !isHTMLContentType(response) {
-		return errors.New("not valid response")
-	}
-	return nil
+func (w *LineWriter) Write(p []byte) (n int, err error) {
+	return w.Writer.Write(append(p, '\n'))
 }
 
-func getLinks(startUrl *url.URL, out chan string) func(io.Reader) {
-	return func(body io.Reader) {
 
-		var base *url.URL
-		htmlDoc, err := goquery.NewDocumentFromReader(body)
-		if err != nil {
-			return
-		}
-		if href, found := htmlDoc.Find("base[href]").Attr("href"); found {
-			base, _ = url.Parse(href)
-		}
-		htmlDoc.Find("a[href]").Each(func(_ int, selection *goquery.Selection) {
-			for _, n := range selection.Nodes {
-				for _, a := range n.Attr {
-					if a.Key == "href" {
-						newUrl := AbsoluteUrl(base, startUrl, a.Val)
-						if newUrl != "" {
-							out <- newUrl
-						}
-					}
-				}
-			}
-		})
-	}
-}
