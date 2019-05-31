@@ -24,11 +24,11 @@ func (m *mockRateLimitRoundTrip) RoundTrip(*http.Request) (*http.Response, error
 }
 
 func TestRateLimitTransport_RoundTrip(t *testing.T) {
-	var requestPerSec uint64 = 1
+	var requestPerSec int = 1
 	mockTransport := mockRateLimitRoundTrip{}
 	limitedTransport := NewRateLimitTransport(&mockTransport, requestPerSec)
 	limitedTransport.RoundTrip(nil)
 	limitedTransport.RoundTrip(nil)
-	delta := 5*time.Millisecond   // in case of -race request a lot of time
+	delta := 5 * time.Millisecond // in case of -race request a lot of time
 	assert.InDelta(t, 1*time.Second, mockTransport.second.Sub(mockTransport.first), float64(delta))
 }
