@@ -14,4 +14,4 @@ pipelines:
           - tar -cO --exclude-vcs --exclude=bitbucket-pipelines.yml . | tar -xv -C "${PACKAGE_PATH}"
           - cd "${PACKAGE_PATH}"
           - go build -v -mod vendor
-          - go test -v -mod verdor -race
+          - go test -v -mod vendor -race
