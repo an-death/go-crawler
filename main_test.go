@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,7 +15,7 @@ func ExampleMainRun() {
 	var urlsChan = make(chan *url.URL)
 	parsedUrl, _ := url.Parse(fmt.Sprintf("http://localhost:%v", testPost))
 	searcher := &LinkSearcher{urlsChan, parsedUrl}
-	crawler := createCrawler(&http.Client{}, []func(io.Reader) error{searcher.GetLinks})
+	crawler := createCrawler(&http.Client{}, BodyHandlers{searcher.GetLinks})
 
 	withVisitFiltered := filterVisited(urlsChan)
 	withExportTo := exportFoundedUrl(withVisitFiltered, &LineWriter{os.Stdout})

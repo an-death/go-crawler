@@ -27,15 +27,13 @@ func main() {
 	// easy could be replaced by fasthttp
 	var doer Doer = &http.Client{Transport: NewRateLimitTransport(http.DefaultTransport, rps)}
 	var linkSearcher = &LinkSearcher{urlsChan, parsedUrl}
-	crawler := createCrawler(doer, []func(io.Reader) error{
-		linkSearcher.GetLinks,
-	})
+	crawler := createCrawler(doer, BodyHandlers{linkSearcher.GetLinks})
 
 	withVisitFiltered := filterVisited(urlsChan)
 	withExportTo := exportFoundedUrl(withVisitFiltered, &LineWriter{out})
-
+	// start crawler process
 	done := crawler.StartLoop(withExportTo)
-
+	// feed root url
 	urlsChan <- parsedUrl
 
 	quit := make(chan os.Signal)
@@ -48,13 +46,13 @@ func main() {
 	}
 }
 
-func createCrawler(doer Doer, bodyHandlers []func(io.Reader) error) *Crawler {
+func createCrawler(doer Doer, bodyHandlers BodyHandlers) *Crawler {
 	requestConstructor := newDefaultRequestConstructor()
 	crawler := Crawler{
 		requestConstructor,
 		doer,
 		&responseHandle{
-			validators: []func(*http.Response) error{
+			validators: ResponseValidators{
 				checkResponseCode(http.StatusOK),
 				checkResponseContentType("html"),
 			},

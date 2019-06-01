@@ -6,9 +6,15 @@ import (
 	"strings"
 )
 
+type HTTPResponseValidatorFunc func(*http.Response) error
+type ResponseValidators []HTTPResponseValidatorFunc
+
+type ResponseBodyHandlerFunc func(reader io.Reader) error
+type BodyHandlers []ResponseBodyHandlerFunc
+
 type responseHandle struct {
-	validators []func(*http.Response) error
-	bodyHandlers []func(reader io.Reader) error
+	validators   ResponseValidators
+	bodyHandlers BodyHandlers
 }
 
 func (rh *responseHandle) HandleResponse(response *http.Response) error {
@@ -20,7 +26,7 @@ func (rh *responseHandle) HandleResponse(response *http.Response) error {
 }
 
 func (rh *responseHandle) runValidators(response *http.Response) error {
-	for _, validator := range rh.validators{
+	for _, validator := range rh.validators {
 		if err := validator(response); err != nil {
 			return err
 		}
@@ -28,7 +34,7 @@ func (rh *responseHandle) runValidators(response *http.Response) error {
 	return nil
 }
 
-func (rh *responseHandle) runHandlers(reader io.Reader) error{
+func (rh *responseHandle) runHandlers(reader io.Reader) error {
 	for _, handler := range rh.bodyHandlers {
 		if err := handler(reader); err != nil {
 			return err
@@ -37,8 +43,7 @@ func (rh *responseHandle) runHandlers(reader io.Reader) error{
 	return nil
 }
 
-
-func checkResponseCode(expectedCode int) func(response *http.Response) error {
+func checkResponseCode(expectedCode int) HTTPResponseValidatorFunc {
 	return func(response *http.Response) error {
 		if response.StatusCode != expectedCode {
 			return &DoesNotMatchError{response.StatusCode, expectedCode}
@@ -47,7 +52,7 @@ func checkResponseCode(expectedCode int) func(response *http.Response) error {
 	}
 }
 
-func checkResponseContentType(expectedContentType string) func(response *http.Response) error {
+func checkResponseContentType(expectedContentType string) HTTPResponseValidatorFunc {
 	return func(response *http.Response) error {
 		actualContentType := response.Header.Get("Content-Type")
 		if !strings.Contains(strings.ToLower(actualContentType), expectedContentType) {
@@ -56,5 +61,3 @@ func checkResponseContentType(expectedContentType string) func(response *http.Re
 		return nil
 	}
 }
-
-
