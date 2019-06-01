@@ -19,7 +19,7 @@ func NewRateLimitTransport(transport http.RoundTripper, rps int) *RateLimitedTra
 		limit = rate.Limit(rps)
 	}
 
-	return &RateLimitedTransport{limiter: rate.NewLimiter(limit, int(rps)), RoundTripper: transport}
+	return &RateLimitedTransport{limiter: rate.NewLimiter(limit, rps), RoundTripper: transport}
 }
 
 func (t *RateLimitedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -27,7 +27,7 @@ func (t *RateLimitedTransport) RoundTrip(req *http.Request) (*http.Response, err
 	return t.RoundTripper.RoundTrip(req)
 }
 
-func (t RateLimitedTransport) wait() {
+func (t *RateLimitedTransport) wait() {
 	for !t.limiter.Allow() {
 		// return control
 		runtime.Gosched()

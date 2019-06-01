@@ -43,27 +43,26 @@ func (c *Crawler) StartLoop(inQueue <-chan *url.URL) (done func()) {
 	doneChan := make(chan struct{})
 	done = func() {
 		doneChan <- struct{}{}
-		<- doneChan
+		<-doneChan
 	}
-go func() {
-
-Loop:
-	for {
-		select {
-		case newUrl := <-inQueue:
-			newUrl = newUrl
-			c.asyncFetch(&group, newUrl)
-		case <-doneChan:
-			break Loop
+	go func() {
+	Loop:
+		for {
+			select {
+			case newUrl := <-inQueue:
+				c.asyncFetch(&group, newUrl)
+			case <-doneChan:
+				break Loop
+			}
 		}
-	}
-	group.Wait()
-	doneChan <- struct{}{}
-}()
+
+		group.Wait()
+		doneChan <- struct{}{}
+	}()
 	return done
 }
 
-func (c Crawler) asyncFetch(group *sync.WaitGroup, url *url.URL){
+func (c Crawler) asyncFetch(group *sync.WaitGroup, url *url.URL) {
 	group.Add(1)
 	go func() {
 		c.Fetch(url.String())

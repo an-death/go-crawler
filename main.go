@@ -30,9 +30,9 @@ func main() {
 	crawler := createCrawler(doer, BodyHandlers{linkSearcher.GetLinks})
 
 	withVisitFiltered := filterVisited(urlsChan)
-	withExportTo := exportFoundedUrl(withVisitFiltered, &LineWriter{out})
+	chanWithExportToStdout := exportFoundedUrl(withVisitFiltered, &LineWriter{out})
 	// start crawler process
-	done := crawler.StartLoop(withExportTo)
+	done := crawler.StartLoop(chanWithExportToStdout)
 	// feed root url
 	urlsChan <- parsedUrl
 
