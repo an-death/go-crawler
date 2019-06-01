@@ -12,7 +12,7 @@ import (
 
 var (
 	VERSION string
-	BUILD string
+	BUILD   string
 )
 
 func main() {
@@ -27,14 +27,15 @@ func main() {
 	// easy could be replaced by fasthttp
 	var doer Doer = &http.Client{Transport: NewRateLimitTransport(http.DefaultTransport, rps)}
 	var linkSearcher = &LinkSearcher{urlsChan, parsedUrl}
-	crawler := createCrawler(doer, []func(io.Reader)error {
+	crawler := createCrawler(doer, []func(io.Reader) error{
 		linkSearcher.GetLinks,
 	})
 
 	withVisitFiltered := filterVisited(urlsChan)
 	withExportTo := exportFoundedUrl(withVisitFiltered, &LineWriter{out})
 
-	done :=  crawler.StartLoop(withExportTo)
+	done := crawler.StartLoop(withExportTo)
+
 	urlsChan <- parsedUrl
 
 	quit := make(chan os.Signal)
@@ -62,18 +63,16 @@ func createCrawler(doer Doer, bodyHandlers []func(io.Reader) error) *Crawler {
 	return &crawler
 }
 
-
-func exportFoundedUrl(inQueue <- chan *url.URL, writer io.Writer) <- chan *url.URL {
+func exportFoundedUrl(inQueue <-chan *url.URL, writer io.Writer) <-chan *url.URL {
 	var outChan = make(chan *url.URL)
 	go func() {
-		for url := range inQueue{
+		for url := range inQueue {
 			writer.Write([]byte(url.String()))
 			outChan <- url
 		}
 	}()
 	return outChan
 }
-
 
 type LineWriter struct {
 	io.Writer
@@ -82,5 +81,3 @@ type LineWriter struct {
 func (w *LineWriter) Write(p []byte) (n int, err error) {
 	return w.Writer.Write(append(p, '\n'))
 }
-
-

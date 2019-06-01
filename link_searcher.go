@@ -1,12 +1,12 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"net/url"
 	"strings"
 
 	"github.com/PuerkitoBio/goquery"
-	"golang.org/x/net/html"
 )
 
 type LinkSearcher struct {
@@ -20,38 +20,46 @@ func (s *LinkSearcher) GetLinks(body io.Reader) error {
 		return err
 	}
 
-	var base *url.URL
-	if href, found := htmlDoc.Find("base[href]").Attr("href"); found {
-		base, _ = url.Parse(href)
+	absoluteUrlFunc, err := s.getAbsoluteUrlFunc(htmlDoc)
+	if err != nil {
+		return err
 	}
 
-	htmlDoc.Find("a[href]").Each(func(_ int, selection *goquery.Selection) {
-		for _, n := range selection.Nodes {
-			for a := range filterKey("href", n.Attr) {
-				if a.Val == "#" {
-					continue
-				}
-
-				if newUrl := AbsoluteUrl(s.startUrl, base, a.Val); newUrl != nil {
-					s.outChan <- newUrl
-				}
+	htmlDoc.Find("a[href]").Each(func(_ int, headSelection *goquery.Selection) {
+		headSelection.Each(func(_ int, selection *goquery.Selection) {
+			val, exits := selection.Attr("href")
+			if !exits {
+				return
 			}
-		}
+			if newUrl := absoluteUrlFunc(val); newUrl != nil {
+				s.outChan <- newUrl
+			}
+		})
 	})
 	return nil
 }
 
-func filterKey(key string, in []html.Attribute) <-chan html.Attribute {
-	var out = make(chan html.Attribute)
-	go func() {
-		for _, a := range in {
-			if a.Key == key {
-				out <- a
-			}
-		}
-		close(out)
-	}()
-	return out
+func (s *LinkSearcher) getAbsoluteUrlFunc(document *goquery.Document) (func(string) *url.URL, error) {
+	if !isBaseFound(document) {
+		return s.absoluteUrl, nil
+	}
+
+	base, err := getBaseValue(document)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.absoluteUrlWithBase(base), nil
+}
+
+func (s *LinkSearcher) absoluteUrl(val string) *url.URL {
+	return AbsoluteUrl(s.startUrl, nil, val)
+}
+
+func (s *LinkSearcher) absoluteUrlWithBase(base *url.URL) func(string) *url.URL {
+	return func(val string) *url.URL {
+		return AbsoluteUrl(s.startUrl, base, val)
+	}
 }
 
 func AbsoluteUrl(prev, base *url.URL, path string) *url.URL {
@@ -59,7 +67,7 @@ func AbsoluteUrl(prev, base *url.URL, path string) *url.URL {
 		return nil
 	}
 	if base == nil {
-		absURL,_ := prev.Parse(path)
+		absURL, _ := prev.Parse(path)
 		return absURL
 	}
 
@@ -71,4 +79,19 @@ func AbsoluteUrl(prev, base *url.URL, path string) *url.URL {
 	}
 	absURL.Fragment = ""
 	return absURL
+}
+
+func getBaseValue(document *goquery.Document) (*url.URL, error) {
+	base, found := document.Find("base[href]").Attr("href")
+	if !found {
+		return nil, errors.New("base not found")
+	}
+
+	return url.Parse(base)
+
+}
+
+func isBaseFound(document *goquery.Document) bool {
+	_, found := document.Find("base[href]").Attr("href")
+	return found
 }
